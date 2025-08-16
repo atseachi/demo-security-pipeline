@@ -1,0 +1,5 @@
+# alert_name	risk	confidence	ignore_reason
+Cross-Domain Misconfiguration	INFO	Low	Non bloquant en dev
+X-Content-Type-Options Header Missing	INFO	Low	Ajouté plus tard côté reverse-proxy
+X-Frame-Options Header Not Set	INFO	Low	À corriger avant prod
+Content Security Policy (CSP) Header Not Set	WARN	Medium	Sera ajouté avec la conf finale

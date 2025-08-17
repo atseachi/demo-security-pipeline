@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'javascript' ]   # change selon ton projet: javascript, python, java, etc.
+        language: [ 'javascript' ]   # adapte: javascript, python, java, etc.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,26 +51,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Trivy FS scan (table)
-        if: always()
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          scan-type: 'fs'
-          format: 'table'
-          output: 'trivy-deps.txt'
-          ignore-unfixed: true
-          severity: 'HIGH,CRITICAL'
-          vuln-type: 'library'
-          skip-dirs: '.git,node_modules,venv'
+      - name: Install Trivy CLI
+        uses: aquasecurity/setup-trivy@v0
 
+      - name: Trivy FS scan (SARIF bloquant)
+        run: |
+          trivy version
+          trivy fs \
+            --scanners vuln \
+            --vuln-type library \
+            --format sarif \
+            --output trivy-deps.sarif \
+            --ignore-unfixed \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --skip-dirs .git \
+            --skip-dirs node_modules \
+            --skip-dirs venv \
+            .
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-deps.sarif'
 
-      - name: Rapport table (lisible)
+      - name: Trivy FS scan (table lisible)
         if: always()
-        run: trivy fs --format table --severity HIGH,CRITICAL --ignore-unfixed --output trivy-deps.txt .
+        run: |
+          trivy fs \
+            --scanners vuln \
+            --vuln-type library \
+            --format table \
+            --ignore-unfixed \
+            --severity HIGH,CRITICAL \
+            --skip-dirs .git \
+            --skip-dirs node_modules \
+            --skip-dirs venv \
+            . > trivy-deps.txt
 
       - name: Artefacts
         if: always()
@@ -100,25 +116,31 @@ jobs:
       - name: Build image
         run: docker build -t "$IMAGE_TAG" .
 
-      - name: Trivy image (table)
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          scan-type: 'image'
-          image-ref: '${{ env.IMAGE_TAG }}'
-          format: 'table'
-          output: 'trivy-image.txt'
-          ignore-unfixed: true
-          severity: 'HIGH,CRITICAL'
-         
+      - name: Install Trivy CLI
+        uses: aquasecurity/setup-trivy@v0
 
+      - name: Trivy image scan (SARIF bloquant)
+        run: |
+          trivy image \
+            --format sarif \
+            --output trivy-image.sarif \
+            --ignore-unfixed \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            "$IMAGE_TAG"
       - name: Upload SARIF image
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-image.sarif'
 
-      - name: Rapport image table
+      - name: Trivy image scan (table lisible)
         if: always()
-        run: trivy image --format table --severity HIGH,CRITICAL --ignore-unfixed "$IMAGE_TAG" > trivy-image.txt
+        run: |
+          trivy image \
+            --format table \
+            --ignore-unfixed \
+            --severity HIGH,CRITICAL \
+            "$IMAGE_TAG" > trivy-image.txt
 
       - name: Artefacts image
         if: always()

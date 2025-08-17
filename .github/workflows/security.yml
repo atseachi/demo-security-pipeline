@@ -52,9 +52,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Trivy CLI
-        uses: aquasecurity/setup-trivy@v0
+        uses: aquasecurity/setup-trivy@v0.2.3
 
-      - name: Trivy FS scan (SARIF bloquant)
+      # Génère le SARIF et "échoue" si HIGH/CRITICAL, mais on n'arrête pas le job pour pouvoir uploader
+      - name: Trivy FS scan (SARIF)
+        id: trivy_deps_sarif
+        continue-on-error: true
         run: |
           trivy version
           trivy fs \
@@ -69,7 +72,9 @@ jobs:
             --skip-dirs node_modules \
             --skip-dirs venv \
             .
+
       - name: Upload SARIF
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-deps.sarif'
@@ -97,6 +102,13 @@ jobs:
             trivy-deps.sarif
             trivy-deps.txt
 
+      # Gate: échec final si des HIGH/CRITICAL ont été trouvées
+      - name: Fail if HIGH/CRITICAL found
+        if: steps.trivy_deps_sarif.outcome == 'failure'
+        run: |
+          echo "HIGH/CRITICAL vulnerabilities found by Trivy (dependencies). Failing the job."
+          exit 1
+
   image_and_zap:
     name: Scan image + DAST ZAP
     if: github.event_name != 'pull_request'
@@ -117,9 +129,11 @@ jobs:
         run: docker build -t "$IMAGE_TAG" .
 
       - name: Install Trivy CLI
-        uses: aquasecurity/setup-trivy@v0
+        uses: aquasecurity/setup-trivy@v0.2.3
 
-      - name: Trivy image scan (SARIF bloquant)
+      - name: Trivy image scan (SARIF)
+        id: trivy_image_sarif
+        continue-on-error: true
         run: |
           trivy image \
             --format sarif \
@@ -128,7 +142,9 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             "$IMAGE_TAG"
+
       - name: Upload SARIF image
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-image.sarif'
@@ -154,12 +170,15 @@ jobs:
       - name: Run app
         run: |
           docker run -d --rm --name app -p 127.0.0.1:${APP_PORT}:${APP_PORT} "$IMAGE_TAG"
+          # Attente robuste de l'app
           for i in {1..30}; do
             if curl -fsS "http://127.0.0.1:${APP_PORT}/health" >/dev/null 2>&1 || curl -fsS "http://127.0.0.1:${APP_PORT}" >/dev/null 2>&1; then
               echo "App is up"; break
             fi
             sleep 2
           done
+          # Si toujours pas up, on échoue proprement
+          curl -fsS "http://127.0.0.1:${APP_PORT}/health" >/dev/null 2>&1 || curl -fsS "http://127.0.0.1:${APP_PORT}" >/dev/null 2>&1 || { echo "App did not start in time"; docker logs app || true; exit 1; }
 
       - name: OWASP ZAP Baseline
         continue-on-error: true
